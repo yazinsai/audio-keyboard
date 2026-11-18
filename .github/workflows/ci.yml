@@ -1,0 +1,57 @@
+# Runs the JVM tests and builds a debug APK for every pull request, and uploads the APK so a
+# reviewer can install the exact build. Signed releases live in release.yml: nothing here signs.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The dictionaries and emoji catalog are fetched, not committed (they are git-ignored), so
+      # :app:preBuild depends on them existing before anything is built.
+      - name: Fetch word lists and emoji data
+        run: tools/fetch_wordlists.sh && tools/fetch_emoji.sh
+
+      - name: Test
+        run: ./gradlew :engine:test :app:testDebugUnitTest
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug
+
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-board-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+      - name: Upload the test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-board-test-reports
+          path: |
+            engine/build/reports/tests/
+            app/build/reports/tests/
+          retention-days: 7
